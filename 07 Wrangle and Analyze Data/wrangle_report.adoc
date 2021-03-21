@@ -1,0 +1,167 @@
+= Wrangle and Analyze Data: Documentation for data wrangling steps
+Jörg Horchler <joerg@horchler.xyz>
+v1.1, 2018-10-22
+:toc:
+:sectnums:
+
+This document briefly describes the wrangling process made during the project *Wrangle and Analyze Data* at Udacity.
+
+== Gathering the data
+
+The first step in the gathering process was to import the provided data and to download or scrape additional data.
+
+The data provided by Udacity for download was just read in using Pandas ```read_csv``` function.
+
+The second file provided by Udacity was a tab-seperated (tsv) file which had to be downloaded.
+I decided to implement a manual caching of this file:
+
+My code checks whether this ```tsv``` file already exists on disk.
+When run first this is not the case, hence the ```requests``` library is used to download it.
+If the file already exists the ```requests``` library is used to query only the HTTP headers of the file.
+It then checks whether the last modified time on disk is _older_ than the ```Last-Modified``` header given by the webserver.
+In addition it compares the file size on disk and the ```Content-Length``` transmitted.
+Depending on these two conditions the data file is either used from disk or downloaded again and read in using ```read_csv``` using ```sep=None, engine='python'``` to let pandas determine the seperator automatically.
+
+The third data used is the raw JSON-Data of the Tweets that were recorded in the first CSV file.
+Again a simple caching mechanism was used to prevent the download over and over again when restarting the Jupyter notebook.
+Whenever the JSON data needs to get downloaded the ``Tweepy``` library is used to query the Twitter API.
+To overcome the rate limit implemented by Twitter I used ```np.array_split``` to generate chunks of Tweet-IDs (up to 100) and queried these in one single call using the method ```statuses_lookup``` from Tweepy.
+To write this JSON data into a file I used the ``JSONParser``` available in Tweepy.
+Finally I used ```json.dumps``` from the JSON library to write one large JSON string per Tweet into ```tweet_json.txt``` .
+
+After writing this file all lines were read in again and parsed to create two DataFrames:
+
+. The DataFrame holding additional Tweet-Data (```retweet_count``` etc.).
+. A DataFrame holding one row per image contained in a Tweet.
+
+The second DataFrame was created for tidiness.
+As every Tweet may contain up to 4 images this is needed.
+
+== Data Assessment
+
+During the assessment (visually and programatically) I identified these issues in the loaded data:
+
+=== Data Tidiness issues
+
+* Variables are stored in both rows and columns:
+** dog stage is stored in 4 different columns in the Twitter offline archive.
+** The column header of the stage is contained as value.
+* Multiple variables are stored in one column:
+** expanded_urls in Twitter offline archive contains more than one URL for Tweets having more than one image.
+** text in Twitter offline archive contains the tiny URL to the tweet.
+* A single observational unit is stored in multiple tables.
+** Tweet-Type from df_api (tweet, retweet, quote, reply) should be an additional column in df_tae if this data would be used for analysis.
+** Columns retweet_count, favorite_count and media_count missing in Twitter offline archive but stored in a seperate table.
+
+=== Issues found in the Twitter offline archive
+
+* source contains a HTML formatted string
+* dog stage columns contain the string None. This should be NaN.
+* 14 rows contain two dog stages because the text contained two different words.
+* None is used as flag for no name within the Tweet. That should be NaN.
+* name is wrong sometimes:
+** Determiners were extracted as names. For example a, an, the.
+** Other words were extracted as well. For example actually (this is actually) and so on.
+** From double names only the first one is extracted (for example 770414278348247044).
+** Having several dog names in the text extracted only the first one (for example 672466075045466113).
+** Tweet 776201521193218049 contains the name O'Malley. The name extracted is 'O'.
+* Incorrect datatypes
+** in_reply_to_status_id
+** in_reply_to_user_id
+** timestamp
+** retweeted_status_id
+** retweeted_status_user_id
+** retweeted_status_timestamp
+** rating_numerator
+** rating_denominator
+* Retweets, replies and quotes are contained in this dataframe.
+* Ratings are not extracted correct sometimes:
+** If a text contains the pattern digit/digit several times only the first one is stored as rating. (Examples: 960/00 is in fact 13/10, or Happy 4/20 from the squad! 13/10 for all extracts 4/20)
+** As seen in https://t.co/qjrljjt948 fractional numerators are used as well but were imported as integers.
+** Dates like 11/15/15 and 7/11 or 9/11 were extracted as ratings.
+* When @dog_rates used & in his Tweets this will be replaced by Twitter with the HTML representation &amp;.
+* Unneeded columns:
+** in_reply_to_status_id
+** in_reply_to_user_id
+** retweeted_status_id
+** retweeted_status_user_id
+** retweeted_status_timestamp
+** expanded_urls
+
+=== Issues found in the Image predictions archive
+
+* Breed names are in mixed capitalization.
+* Breed names contain underscores.
+* The confidence columns should be formated as percentages for better readability.
+* The image predictions include non-dog predictions as well. (paper_towel, orange, bagel, banana).
+* Images of videos (thumbnails) were predicted as well.
+* jpg_url contains 66 duplicates.
+* There are 324 predictions that do not predict a dog at all. For these no breed information is available.
+* Fewer rows than in main enhanced Twitter archive: Not all Tweets contain images.
+* Retweets, replies and quotes are contained in this dataframe.
+* Unneeded columns in Image predictions archive:
+** img_num
+* Instead of the Image-ID only the number of the image is stored in the DataFrame containing the image predictions. This aggravates joining the DataFrames.
+
+=== Issues found in the Twitter API gathered data
+
+* Some Tweets do not contain media information at all.
+* Some Tweets contain a video.
+* Fewer rows than in main enhanced Twitter archive: Not all Tweets contain images.
+* Erroneous datatypes
+** tweet_id and tweet_type in df_api
+** tweet_id, media_id, and media_type in df_api_media
+* There are 274 tweets having no media information.
+* 15 Tweets from df_tae were not downloaded by the API calls.
+* Retweets, replies and quotes are contained in this dataframe.
+* 95 media ids are duplicates. These might be due to retweets.
+* 95 URLs are duplicated. Again perhaps due to retweets.
+* There are 77 videos and 6 animated gifs included in the Tweets.
+
+=== Thoughts about this step
+
+The main issue for me in this part of the project was to decide what data to extract.
+My first thought was to read every Tweet visually because a Tweet contains only 140 characters.
+But the first visual assessment steps showed that this would not be possible.
+The next problem was to find the right Python functions to explore the data and to find ideas about _what_ data to explore.
+I used Python in the past but this project showed me that there is a lot more to learn.
+
+== Data cleaning
+
+After identifying these issues my next thought was to clean all of them.
+This was because I thought that this should be not that issue.
+I was mistaken!
+Again my lack of knowledge about Python led to a delay in fixing the issues.
+Hence for me the number of issues was not the problem but the lack of knowledge about how to fix it.
+
+Finally I was successful by spending a lot of time reading documentation and websites like Stackoverflow.
+I first thought about what data I want to analyze.
+Then I specified what data should be stored in the final DataFrame.
+
+The steps taken after that were:
+
+- Fix a lot of issues by copying the existing DataFrames or reading them in using different parameters.
+- As only original ratings that have images should be analyzed I decided to delete unneeded data:
+    + I deleted all retweets, replies and quotes.
+    + I deleted all rows that do not have any media attached.
+    + I deleted all tweets that contain a video.
+    + I decided to delete all Tweets on which the neuronal network was unable to predict a dog.
+- The 4 dog stage columns were melted into one column.
+- The HTTP URL in the Tweet text was removed into a new column.
+- One of the two DataFrames created from the Twitter API was merged with the master DataFrame.
+- The information of the main image used for the breed prediction was merged into the master DataFrame.
+- The HTML code in the column ```source``` where removed using the ``lxml``` library.
+- HTML Character Entities were replaced in the Tweet text.
+- Underscores in the breed names were removed.
+- Breed names were titled.
+- All ratings were extracted again from the Tweet text using a custom function.
+- The dog names were extracted using a custom function.
+
+As I decided to create a word cloud later using the dog names I decided to break tidiness in the last step.
+I extracted all dog names and stored them in the same column.
+That way I was able to concat all names of all dogs and let the ```word_cloud``` library remove the stop words in the resulting text.
+
+The last step was to save two CSV-Files:
+
+- twitter_archive_master.csv contains the cleaned data.
+- For tidiness twitter_archive_media.csv contains the data aboute the images of the Tweets stored in twitter_archive_master.csv.
