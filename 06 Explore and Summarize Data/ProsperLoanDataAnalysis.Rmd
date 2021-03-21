@@ -1,0 +1,1579 @@
+---
+title: 'Prosper Loan Data Analysis'
+author: 'Jörg Horchler'
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    df_print: kable
+    highlight: pygments
+  html_document:
+    df_print: paged
+    highlight: pygments
+    number_sections: true
+    theme: flatly
+    toc: true
+    toc_float: true
+    dev: quartz_png
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align = 'center')
+```
+
+```{r packages, message=FALSE, warning=FALSE}
+# Load libraries used for plotting
+library(ggplot2)
+library(pander)
+library(ggthemes)
+library(scales)
+library(ggcorrplot)
+library(ggalt)
+# wrangling/grouping etc.
+library(dplyr)
+library(forcats)
+library(lubridate)
+# nicer output
+library(knitr)
+library(summarytools)
+```
+
+```{r set_options, message=FALSE, warning=FALSE}
+# theme defaults
+panderOptions('graph.grid.color', 'red')
+panderOptions('graph.grid.lty', 'dotted')
+# geom colors
+update_geom_defaults('bar', list(colour = 'black', fill = '#f0f8ff'))
+update_geom_defaults('area', list(colour = 'black', fill = '#89cff0'))
+update_geom_defaults('boxplot', list(colour = 'black', fill = '#bcd4e6'))
+update_geom_defaults('point', list(colour = '#3d2b1f'))
+```
+
+***
+
+# Introduction
+
+This document explores a dataset about loans which was collected from
+[Prosper](https://www.prosper.com). 
+The [datafile](https://www.google.com/url?q=https://s3.amazonaws.com/udacity-hosted-downloads/ud651/prosperLoanData.csv&sa=D&ust=1537305070260000) was last updated on 03/11/2014.
+
+Prosper is an online marketplace where creditworthy borrowers can request a loan
+and investors can invest in notes (or pieces) of each loan. Investors receive a
+portion of those payments directly to their Prosper account proportional to
+their pro rata share of the loan.
+
+The variables in this dataset include loan, including loan amount, borrower rate
+(or interest rate), current loan status, borrower income, borrower employment 
+status, borrower credit history, and the latest payment information.
+
+The objective of this report is to examine how the interest rate is calculated.
+This can be described as what variables are used to examine the risk factors of
+a borrower.
+
+***
+
+# Dataset description
+
+```{r load_data}
+loan_data <- read.csv('prosperLoanData.csv', na.strings = '')
+```
+
+## Structure
+
+The structure is:
+
+```{r show_structure}
+str(loan_data)
+```
+
+This output already shows some points to note: 
+
+1. The date fields like `ListingCreationDate`, `ClosedDate` or 
+   `DateCreditPulled` were imported as `Factor`. These fields should be 
+   converted to dates.
+2. `CreditGrade` should be sorted from low risk to high risk. This order feels
+   more naturally.
+3. Two other fields hold `Ratings` as well. These are 
+   `ProsperRating (numeric)` which encodes `ProsperRating (Alpha)`. These should
+   be sorted as well.
+4. The same should be done for `IncomeRange` and `ProsperScore`.
+5. Some variables hold `True` or `False`. For example `IncomeVerifiable` and
+   `IsBorrowerHomeowner`. These should be converted to bools.
+6. There are a lot `NA` values. How to handle these will be decided during the
+   analysis.
+
+These tasks will be done during the analysis if needed. 
+
+## Dimension
+
+In the above output it is visible that the dataset contains 113,937 observations 
+of 81 variables.
+
+***
+
+# Getting the feet wet
+
+In this section the report contains an exploration of various 
+but not all variables in the dataset. The goal is to explore what variables 
+might be important for the examination of the risk rating system.
+
+## Background Information
+
+The history of Prosper and the obligation to register with SEC can be read at 
+[Harvard Business Law Review][HBLR]. To sum up, when Prosper started its
+business it started in a unregulated market. P2P lending was new and fraught 
+with risk to lenders, who were largely individuals rather than traditional
+institutional creditors.
+
+From 2006 to 2008 Prosper was charging off more than 20% of loans issued. On
+November 2008 Securities and Exchange Commission (SEC) entered a 
+cease-and-desist order against Prosper. From then on Prosper had to be 
+registered with the SEC to comply with federal securities laws.
+
+Finally in July 2009, Prosper reopened their website after having obtained SEC 
+registration. Starting with that Prosper rolled out its new proprietary credit
+rating system what is called **Prosper Rating**. It is based on two scores:
+
+* The credit score from a credit reporting agency.
+* The second is a Prosper Score of which is based upon a custom risk model using
+  Prosper data to predict the probability of a loan going *"bad"*.
+
+## Timeframe
+
+The first important variable is what timeframe is included in the dataset. As
+written above Prosper relaunched in 2009. As `ProsperRating` is only used with
+data after this relaunch it is important to use only data after the relaunch.
+
+For that the *Factor* `ListingCreationDate` is converted as date and is then 
+plotted with the number of listings created by day.
+
+```{r convert_dates}
+loan_data$ListingCreationDate <- as.Date(loan_data$ListingCreationDate,
+                                         format = '%Y-%m-%d %H:%M:%S')
+```
+
+```{r listing_creation_date_by_day}
+ggplot(loan_data, aes(ListingCreationDate)) +
+  geom_histogram(binwidth = 1) +
+  theme_pander()
+```
+
+Two things are visible here: 
+
+1. A significant drop of listings created in 2009 - the year of the SEC
+   registration.
+2. One large peak at the beginning of 2011.
+
+The first point is explained above.
+
+```{r create_post_sec_data_frame}
+post_sec_relaunch <- loan_data %>%
+  filter(ListingCreationDate >= as.Date('2009-07-29'))
+```
+
+The large peak at the beginning of 2011 is at date:
+
+```{r peak_2011_beginning}
+post_sec_relaunch %>%
+  filter(year(ListingCreationDate) == '2011') %>%
+  count(ListingCreationDate) %>%
+  top_n(1, n) %>%
+  select('ListingCreationDate') %>%
+  pull()
+```
+
+Research did not unveil what happened on this day and why there was that
+significant raise in listings created.
+
+```{r listing_creation_date_range_post_sec_relaunch, results = 'hide'}
+summary(post_sec_relaunch$ListingCreationDate)
+```
+
+After the relaunch the range of `ListingCreationDate` is from **2009-07-29** to
+**2014-03-10**.
+
+Let's see the distribution by month in this period:
+
+```{r post_sec_relaunch_monthly_distribution}
+ggplot(post_sec_relaunch, aes(ListingCreationDate)) +
+  geom_histogram(binwidth = 30) +
+  theme_pander()
+```
+
+Obviously P2P lending has gotten more popular in 2013.
+
+I'd like to see later on how various variables changed over time.
+
+## BorrowerRate
+
+As next information in this section the `Interest Rate` that borrowers is 
+offered is examined. This is stored as `BorrowerRate` and is the most important 
+variable for borrowers *and* lenders. This is because lender yield is
+`BorrowerRate - 0.01`.
+
+```{r borrower_rate_summary, results = 'asis'}
+descr(post_sec_relaunch$BorrowerRate, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+Prosper advertizes its low interest rate. In this dataset the range is from
+**0.04** to **0.36**. The average rate is about **0.20**.
+
+That's quite high but is just the average across the whole dataset. On the other
+hand **4%** is very low compared to credit card interest rates as seen on
+[Federal Reserve Economic Data][TERMCBCCALLNS] of the timeframe covered in this
+dataset. According to that the Interest Rate on Credit Card Plans of
+Commercial Banks was between **14.5%** to around **12%**.
+
+```{r borrower_rate_distribution}
+ggplot(post_sec_relaunch, aes(BorrowerRate)) +
+  geom_histogram(binwidth = 0.01) +
+  theme_pander() +
+  scale_x_continuous(label = percent)
+```
+
+As we can see the distribution is multimodal. The majority of the loans do have 
+a rate of around **32%** what is very high. The top 5 interest rates are:
+
+```{r top_5_worse_borrower_ratings}
+post_sec_relaunch %>%
+  count(BorrowerRate) %>%
+  top_n(., 5, n) %>%
+  arrange(desc(n)) %>%
+  kable(col.names = c('Borrower Rate','Listings'))
+```
+
+A higher `BorrowerRate` means a worse rating.
+
+```{r top_5_worse_borrower_ratings_var}
+top_5_worse_borrower_ratings <- post_sec_relaunch %>%
+  count(BorrowerRate) %>%
+  top_n(., 5, n) %>%
+  select(BorrowerRate) %>%
+  pull()
+```
+
+```{r prosper_rating_of_top_5_worse_borrower_ratings}
+# reorder the factor
+rate_order <- c('AA', 'A', 'B', 'C', 'D', 'E', 'HR')
+post_sec_relaunch$ProsperRating..Alpha. <- 
+  factor(post_sec_relaunch$ProsperRating..Alpha., rate_order)
+post_sec_relaunch %>%
+  filter(BorrowerRate %in% top_5_worse_borrower_ratings) %>%
+  count(ProsperRating..Alpha.) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(., aes(ProsperRating..Alpha., n)) +
+  geom_bar(stat = 'identity') + 
+  geom_text(aes(y = n, label = percent(proportion)), stat = 'identity',
+            vjust = -0.5) +
+  theme_pander()
+```
+
+One can see a glimpse on the relationship between `ProsperRating` and
+`BorrowerRate`. As seen here most *bad* interest rates (`BorrowerRate`) do have
+a *bad* `ProsperRating` as well.
+
+I am left wondering how `BorrowerRate` is related to other variables like
+`ProsperScore` or `CreditRange`.
+
+## ProsperScore
+
+`ProsperScore` is defined as *a custom risk score built using historical Prosper
+data*. It is used to calculate `ProsperRating`.
+
+```{r prosper_score_summary, results = 'asis'}
+descr(post_sec_relaunch$ProsperScore, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+`ProsperScore` ranges from **1** to **11**, with 11 being the best, or lowest
+risk score. The median in this dataset is **6**. The **mean** doesn't make 
+sense here because Prosper doesn't use fractions of scores. Let's see whether
+this variable follows a normal distribution:
+
+```{r prosper_score_dist}
+ggplot(post_sec_relaunch, aes(ProsperScore)) +
+  geom_histogram(binwidth = 1) +
+  geom_text(aes(y = ..count.., label = percent(..count.. / sum(..count..))),
+            stat = 'count', vjust = -0.5) +
+  theme_pander() +
+  scale_x_continuous(breaks = seq(1, 11, 1))
+```
+
+This distribution is multimodal having the maximum at a score of **4** followed
+by **6** and **8**. But it is visible that the majority of loans is spread
+around the mean. 
+
+Again I wonder how this score influences `BorrowerRate`.
+
+## ProsperRating
+
+`ProsperRating` is another variable used to calculate the `BorrowerRate`
+customers is offered. It is available in two variants: 
+
+* `ProsperRating (Alpha)` is encoded by
+* `ProsperRating (numberic)`
+
+What are the summary statistics and visualization of `ProsperRating (numeric)`?
+
+```{r prosper_rating_summary, results = 'asis'}
+descr(post_sec_relaunch$ProsperRating..numeric., style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+As seen the rating is from **1** to **7** what is the coding for *HR* to *AA*.
+That means that **1** is the worst and **7** is the best rating. The median
+rating is **4** what encodes a **C** rating. Again as no fractions of the rating
+exist the mean doesn't make sense.
+
+```{r prosper_rating_dist}
+ggplot(post_sec_relaunch, aes(ProsperRating..numeric.)) +
+  geom_bar() +
+  geom_text(aes(y = ..count.., label = percent(..count.. / sum(..count..))), 
+            stat = 'count', vjust = -0.5) +
+  scale_x_continuous(breaks = seq(1, 7, 1)) +
+  theme_pander()
+```
+
+This distribution is normal distributed what I'd expected here because I think 
+that most borrowers at Prosper are having an average income and 
+creditworthiness.
+
+I wonder how that relates to the prosper score and the borrower rate. These
+variables do not follow a normal distribution.
+
+## CreditScoreRangeLower and CreditScoreRangeUpper
+
+I suspect the credit score Prospers pulls from a agency influences the
+interest rate. Let's first see again the descriptive statistics.
+
+```{r credit_score_range_lower_summary, results = 'asis'}
+descr(post_sec_relaunch$CreditScoreRangeLower, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+```{r credit_score_range_upper_summary, results = 'asis'}
+descr(post_sec_relaunch$CreditScoreRangeUpper, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+As seen `CreditScoreRangeUpper` is just **19** points higher than 
+`CreditScoreRangeLower`. Both have a standard deviation of **47.07**, the *IQR*
+is **60** and so on. *Min* and *Max* are from **600**/**619** to 
+**880**/**899**, respectively. 
+
+Let's see just the distribution of the lower range:
+
+```{r credit_score_lower_dist}
+ggplot(post_sec_relaunch, aes(CreditScoreRangeLower)) +
+  geom_histogram(binwidth = 19) +
+  scale_x_continuous(breaks = seq(600, 900, 15)) +
+  theme_pander()
+```
+
+This variable is right skewed having the modal at **660**. As seen above there
+are no **NA** values and not outliers. We see here as well (and from the
+statistics above) that Prosper only allows borrows by people having a 
+credit score above 600. This is one of the consequences described above.
+
+I suspect the strongest correlation between `BorrowerRate` and 
+`CreditScoreRangeLower`.
+
+## StatedMonthlyIncome
+
+`StatedMonthlyIncome` is a allegation of the borrower about his income.
+
+```{r stated_monthly_income_summary, results = 'asis'}
+descr(post_sec_relaunch$StatedMonthlyIncome, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+The statistics show a range from **$0** to **$1,750,002.92**. 
+
+***
+
+> Wow!
+
+***
+
+The average stated income is **$5,932.96** and there are no **NA** values.
+**Q3** is **$7083.33**. As I suspect that **$1,750,002.92** is an outlier let's
+count the listings above Q3.
+
+```{r stated_monthly_income_above_q3}
+post_sec_relaunch %>%
+  filter(StatedMonthlyIncome > quantile(StatedMonthlyIncome, 0.75)) %>%
+  nrow()
+```
+
+That's still a lot of rows. So what are the top 10 monthly incomes?
+
+```{r top_10_monthly_incomes_table}
+post_sec_relaunch %>%
+  filter(StatedMonthlyIncome > quantile(StatedMonthlyIncome, 0.75)) %>%
+  select(StatedMonthlyIncome) %>%
+  top_n(., 10, StatedMonthlyIncome) %>%
+  arrange(desc(StatedMonthlyIncome)) %>%
+  kable()
+```
+
+Now let's see this one row:
+
+```{r maximum_stated_income_row}
+# show this one row as dataframe
+post_sec_relaunch %>%
+  filter(StatedMonthlyIncome == max(StatedMonthlyIncome))
+```
+
+The listing was created by someone being a **Self-employed** **Professional**
+who is a Home Owner and who's income is not verifiable. The 
+**LoanOriginalAmount** is about **4000** Dollars. The rating is at 
+**High Risk**. From these information it is not clear whether
+this a an outlier. But this has to be noted because such values skew the
+distribution.
+
+That is the distribution without this row and without incomes of **0**:
+
+```{r stated_income_histogram_subset}
+post_sec_relaunch %>%
+  filter(StatedMonthlyIncome > 0 &
+         StatedMonthlyIncome < max(StatedMonthlyIncome)) %>%
+  ggplot(., aes(StatedMonthlyIncome)) + 
+  geom_histogram(binwidth = 10000) +
+  scale_x_continuous(label = dollar, breaks = seq(0, 618548, 75000)) +
+  theme_pander()
+```
+
+As this plot does not reveal that much let's exclude more rows:
+
+```{r stated_income_histogram_subset_below_75000}
+post_sec_relaunch %>%
+  filter(StatedMonthlyIncome < 20000) %>%
+  ggplot(., aes(StatedMonthlyIncome)) + 
+  geom_histogram(binwidth = 1000, boundary = 0) +
+  scale_x_continuous(label = dollar, breaks = seq(0, 20000, 1000)) +
+  theme_pander() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+```
+
+This is an expected right skewed plot. The *binwidth* here is **$1000**.
+
+I wonder about the ratings and the scores of the members having more than
+**$20,000** stated monthly income.
+
+## PublicRecordsLast12Months
+
+`PublicRecordsLast12Months` is one of the variables that should not occur in 
+this dataset as people are not allowed to join Prosper having a Public Record
+within the last 12 months. But perhaps there are some loans of people joining
+Prosper having no public record but got one being a member.
+
+```{r public_records_last_12_months_summary, results = 'asis'}
+descr(post_sec_relaunch$PublicRecordsLast12Months, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+As expected the minimum is **0**. But the maximum is **20**. Is it possible to
+get that much public records?
+
+```{r public_records_last_12_months_distribution}
+ggplot(post_sec_relaunch, aes(as.factor(PublicRecordsLast12Months))) +
+  geom_bar() +
+  scale_y_continuous(breaks = seq(0, 90000, 10000)) +
+  geom_text(aes(y = ..count.., label = ..count..),
+            stat = 'count', vjust = -0.4) +
+  theme_pander()
+```
+
+There are not that much listings having a public record. Even **621** listings
+having **1** public record is not that much.
+
+What is the `LoanStatus` of all of these listings?
+
+```{r public_record_loan_status}
+# first sort LoanStatus
+post_sec_relaunch$LoanStatus <- factor(post_sec_relaunch$LoanStatus, 
+                                       levels=c('Completed',
+                                                'FinalPaymentInProgress',
+                                                'Current',
+                                                'Past Due (1-15 days)',
+                                                'Past Due (16-30 days)',
+                                                'Past Due (31-60 days)',
+                                                'Past Due (61-90 days)',
+                                                'Past Due (91-120 days)',
+                                                'Past Due (>120 days)',
+                                                'Defaulted',
+                                                'Chargedoff',
+                                                'Cancelled'))
+# show frequency
+post_sec_relaunch %>%
+  filter(PublicRecordsLast12Months > 0) %>%
+  count(LoanStatus) %>%
+  kable(col.names = c('LoanStatus', 'Frequency'))
+```
+
+Having the majority of loans without public records I do not expect that this
+variable is correlated to `BorrowerRate`. But this is a point to examine later
+on.
+
+## InquiriesLast6Months
+
+`InquiriesLast6Months` is the number of inquiries in the last 6 months at the 
+time the credit profile was pulled by Prosper. This is of interest to see how 
+many credit bureau inquiries were requested and in addition is one variable 
+Prospers states as [criteria][MinimumCriteria] to borrow on Prosper. This is 
+defined as *"Fewer than five credit bureau inquiries within the last 6 months"*.
+
+Due to that there should be no listing having more than 5 inquiries.
+
+```{r inquiries_summary, results = 'asis'}
+descr(post_sec_relaunch$InquiriesLast6Months, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+The range of this variable is from **0** to **27** and there are no **NA**
+values. As **Q3** is at **1** most of the values in this variable must be **0**.
+
+A histogram showing that is:
+
+```{r inquiries_histogram}
+ggplot(post_sec_relaunch, aes(InquiriesLast6Months)) +
+  geom_histogram(binwidth = 1) +
+  theme_pander() +
+  scale_x_continuous(breaks = seq(0, 27, 1))
+```
+
+The following table shows the proportions:
+
+```{r inquiries_proportion}
+# choosed to display a table because a pie chart looked not that clear
+post_sec_relaunch %>%
+  count(InquiriesLast6Months) %>%
+  mutate(freq = round(100 * (n / sum(n)), 2)) %>%
+  kable(col.names = c('Inquiries Last 6 Months', 'Frequency', 'Proportion'))
+```
+
+Roughly **50%** of the borrowers in the dataset do have **0** inquiries in the
+last six months. Overall **97%** of the dataset falls below the minimum
+requirement of having fewer than five inquiries in the last six months.
+
+What is the distribution above the minimum requirement:
+
+```{r inquiries_histogram_out_of_range}
+post_sec_relaunch %>%
+  filter(InquiriesLast6Months > 4) %>%
+  ggplot(., aes(InquiriesLast6Months)) +
+  geom_histogram(binwidth = 1) +
+  theme_pander() +
+  scale_x_continuous(breaks = seq(5, 27, 1))
+```
+
+The same data as table with the changed proportions is:
+
+```{r table_inquiries_histogram_out_of_range}
+post_sec_relaunch %>%
+  filter(InquiriesLast6Months > 4) %>%
+  count(InquiriesLast6Months) %>%
+  mutate(freq = round(100 * (n / sum(n)), 2)) %>%
+  kable(col.names = c('Inquiries Last 6 Months', 'Frequency', 'Proportion'))
+```
+
+These listings should be in status **cancelled** because they don't fullfill the
+requirements to borrow money at Prosper.
+
+```{r loan_status_out_of_range}
+post_sec_relaunch %>%
+  filter(InquiriesLast6Months > 4) %>%
+  count(LoanStatus) %>%
+  ggplot(., aes(LoanStatus, n)) +
+  geom_bar(stat = 'identity') +
+  theme_pander() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+Obviously none of these listings are **cancelled**. It seems that this business
+rule was not in place when the data was pulled or that all these loans are
+older than 6 months.
+
+## LoanOriginalAmount
+
+The variable `LoanOriginalAmount` is of interest to see how much money is
+borrowed. 
+
+```{r loan_original_amount, results = 'asis'}
+descr(post_sec_relaunch$LoanOriginalAmount, style = 'rmarkdown',
+      omit.headings = TRUE)
+```
+
+The range of borrowed money is from **$1,000 to $35,000**. On average a listing 
+is about **$9,092**. The median is at **$7,500**, the standard deviation is
+**6288.78** and there are no **NA** values. 
+
+The distribution is:
+
+```{r loan_original_amount_hist}
+# choose a histogram with binwidth eq 500 to see the peaks much better
+ggplot(post_sec_relaunch, aes(LoanOriginalAmount)) +
+  geom_histogram(binwidth = 500) +
+  scale_x_continuous(label = dollar, breaks = seq(1000, 35000, 5000)) +
+  theme_pander()
+```
+
+The plot is multimodal. It seems that most people choose standard amounts to
+borrow at round numbers but that there are a some loans in between not using a
+standard amount. Most loans are of **$4,000**, **$10,000** and **$15,000**.
+
+How does that look like without these peaks?
+
+```{r loan_original_amount_without_peaks}
+post_sec_relaunch %>%
+  count(LoanOriginalAmount) %>%
+  filter(n < 500) %>%
+  ggplot(., aes(LoanOriginalAmount)) +
+  geom_histogram(binwidth = 500) +
+  scale_x_continuous(label = dollar, breaks = seq(1000, 35000, 5000)) +
+  theme_pander()
+```
+
+This plot is expected: It is right skewed. The higher the loan the fewer people
+request that.
+
+Let's squeeze together larger values and stretch out smaller values by using a
+log scaling:
+
+```{r log_loan_original_amount}
+ggplot(post_sec_relaunch, aes(log(LoanOriginalAmount))) +
+  geom_histogram(binwidth = 0.35) +
+  theme_pander()
+```
+
+Using a log-Scale is multimodel as well but looks a bit more like a normal
+distribution. This information might be handy if a model should be fit.
+
+## LoanCurrentDaysDelinquent
+
+`LoanCurrentDaysDelinquent` it the number of days the loan is delinquent.
+
+```{r loan_current_days_delinquent_summary, results = 'asis'}
+descr(post_sec_relaunch$LoanCurrentDaysDelinquent, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+The range of this variables is from **0** to **1593**. **1593** days are more
+than **4 years**. On average a loan is **36.54** days deliquent. But as **Q1**,
+Median and **Q3** are **0** the average is skewed from the high values. 
+This variable contains no **NA** values. The distribution without 0-values is:
+
+```{r loan_current_days_delinquent_distribution}
+post_sec_relaunch %>%
+  filter(LoanCurrentDaysDelinquent > 0) %>%
+  ggplot(., aes(LoanCurrentDaysDelinquent)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(breaks = seq(0, 1600, 100)) +
+  theme_pander()
+```
+
+As **0** is excluded the highest peaks are at the beginning of the plot and
+around 115. The top 5 days delinquent are:
+
+```{r loan_current_days_delinquent_peaks}
+post_sec_relaunch %>%
+  count(LoanCurrentDaysDelinquent) %>%
+  top_n(., 5, n) %>%
+  kable(col.names = c('Current Days Delinquent', 'Listings'))
+```
+
+This output shows the two peaks are at **10** and **121** days of delinquency.
+
+```{r delayed_loans, results = 'hide'}
+post_sec_relaunch %>%
+  filter(LoanCurrentDaysDelinquent == 0) %>%
+  nrow() / length(post_sec_relaunch$LoanCurrentDaysDelinquent)
+```
+
+As seen already in the summary statistics, most listings have a value of **0**
+in `LoanCurrentDaysDelinquent`. Overall, roughly **90%** fall into this
+category.
+
+That means that about **10%** loans in this dataset are delinquent. According
+to [Federal Reserve Economic Data][DRCLACBS] this is way more than compared to
+all commercial banks in this timeframe of **3.19%**. That means that borrowers
+at Prosper are more delinquent compared to commercial bank customers.
+
+I'm left wondering how this information correlates to `BorrowerRate`, 
+`ProsperScore` and `ProsperRating`. Do these 10% have a worse rating as well?
+
+## CurrentDelinquencies
+
+`CurrentDelinquencies` is the number of accounts delinquent at the time the
+credit profile was pulled. What are the basic statistics?
+
+```{r current_accounts_delinquent_summary, results = 'asis'}
+descr(post_sec_relaunch$CurrentDelinquencies, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+As seen the range is **0** to **51**, **Q1** and **Q3** are **0** again. There
+are no **NA** values, standard deviation is **1.11**.
+
+I suspect that **51** accounts is a data issue. What is the listing having
+this large number of delinquent accounts?
+
+```{r maximum_current_delinquent}
+post_sec_relaunch %>%
+  filter(CurrentDelinquencies == max(CurrentDelinquencies))
+```
+
+From this data it does not look like an incorrect entry. `ListingCreationDate`
+if from **2013-12-21**, `LoanStatus` is **current**, `ProsperScore` is **8**,
+what is high (11 is the best). The borrower does not state his `Occupation` or
+his `EmploymentStatusDuration` (what is set to **0**). He claims to be a
+Homeowner with an `CreditScore` between **700** and **719**. His
+`FirstRecordedCreditLine` is of **1979-07-19** what is **34 Years** ago when
+this Prosper Credit was pulled. So the borrower is not young and it might be
+that he really has an `IncomeRange` of **$50,000-74,999** due to his
+`StatedMonthlyIncome` of **$5,000**.
+
+But a little weird is that `TotalProsperLoans` and `TotalProsperPaymentsBilled`
+is **NA** because `LoanMonthsSinceOrigination` is **3**. 
+
+Currently it's unclear what this listing is about.
+
+The distribution of this variable is:
+
+```{r current_delinquencies_dist}
+ggplot(post_sec_relaunch, aes(CurrentDelinquencies)) +
+  geom_histogram(binwidth = 1) +
+  theme_pander()
+```
+
+```{r current_delinquencies_zero, results = 'hide'}
+post_sec_relaunch %>%
+  filter(CurrentDelinquencies == 0) %>%
+  nrow() / length(post_sec_relaunch$CurrentDelinquencies)
+```
+
+Again the majority of listings (**83%**) is having **0** current delinquencies. 
+
+```{r current_delinquencies_dist_over_zero}
+post_sec_relaunch %>%
+  filter(CurrentDelinquencies > 0) %>%
+  ggplot(., aes(CurrentDelinquencies)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(breaks = seq(1, 51, 3)) +
+  theme_pander()
+```
+
+Most of the members of these loans do have less than **10** delinquent accounts.
+
+```{r more_than_10_delinquent_accounts}
+post_sec_relaunch %>%
+  filter(CurrentDelinquencies > 10) %>%
+  ggplot(., aes(CurrentDelinquencies)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(breaks = seq(11, 51, 3)) +
+  scale_y_continuous(breaks = seq(0, 50, 2)) +
+  theme_pander()
+```
+
+Plotting only the loans of members having more than **10** delinquent accounts
+clearly show that the maximum is a large outlier. The next listings having a
+large `CurrentDelinquencies` are **32**, **27** and **24**. That's alot.
+
+## EstimatedLoss
+
+Now let's see `EstimatedLoss`. This is defined as *the estimated principal loss
+on charge-offs.* It is important because Prosper used a learning model on
+historical data to calculate the estimated loss and uses this as one variable
+to set its `ProsperScore`.
+
+```{r estimated_los_summary, results = 'asis'}
+descr(post_sec_relaunch$EstimatedLoss, style = 'rmarkdown', 
+      omit.headings = TRUE)
+```
+
+As seen the range of this is from **0** to **0.37** or **37%**. The average
+estimated loss is **0.08** or **8%**. 
+
+```{r estimated_loss_distribution}
+ggplot(post_sec_relaunch, aes(EstimatedLoss)) +
+  geom_histogram(binwidth = 0.01) +
+  theme_pander() +
+  scale_x_continuous(label = percent)
+```
+
+The distribution shows that the majority of loans do have a estimated loss
+below **20%**. Most loans do have a estimated loss of **6%** and there are some
+loans above **20**. 
+
+I wonder whether these can be related to other variables like `ProsperRating` or
+`ProsperScore` as these are based on it.
+
+## LoanStatus
+
+The last variable I'd like to examine is `LoanStatus`. As this is a factor I
+omit the descriptive statistics.
+
+```{r loan_status}
+ggplot(post_sec_relaunch, aes(LoanStatus)) +
+  geom_bar() +
+  geom_text(aes(y = ..count.., label = percent(..count.. / sum(..count..))), 
+            stat = 'count', vjust = -0.5) +
+  scale_y_continuous(breaks = seq(0, 60000, 10000)) +
+  theme_pander() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+The majority of loans is **Current**, **23.1%** are **Completed** and about
+**10%** are delayed. That was seen already above.
+
+**1.2%** are **Defaulted**, **6.3%** are **Chargedoff**.
+
+Later I'll correlating this with the other variables.
+
+## Summary
+
+In this first part 14 variables out of 81 in a large dataset of 113,937 loan
+listings were examined. These 14 variables are:
+
+|                      Variable |    Mean | Median |        Min |        Max | 
+|------------------------------:|--------:|-------:|-----------:|-----------:|
+|       **ListingCreationDate** |  &nbsp; | &nbsp; | 2009-07-29 | 2014-03-10 |
+|              **BorrowerRate** |    0.20 |   0.19 |       0.04 |       0.36 |
+|              **ProsperScore** |  &nbsp; |      6 |          1 |         11 |
+|   **ProsperRating (numeric)** |  &nbsp; |  4 / C |     1 / HR |     7 / AA |
+|     **CreditScoreRangeLower** |  &nbsp; |    700 |        600 |        880 |
+|     **CreditScoreRangeUpper** |  &nbsp; |    719 |        619 |        899 |
+|       **StatedMonthlyIncome** | 5932.96 |   5000 |          0 | 1750002.92 |
+| **PublicRecordsLast12Months** |  &nbsp; |      0 |          0 |         20 |
+|      **InquiriesLast6Months** |  &nbsp; |      0 |          0 |         27 |
+|        **LoanOriginalAmount** | 9092.27 |   7500 |       1000 |      35000 |
+| **LoanCurrentDaysDelinquent** |   36.54 |      0 |          0 |       1593 |
+|      **CurrentDelinquencies** |  &nbsp; |      0 |          0 |         51 |
+|             **EstimatedLoss** |    0.08 |   0.07 |          0 |       0.37 |
+|                **LoanStatus** |  &nbsp; | &nbsp; |     &nbsp; |     &nbsp; |
+
+`ProsperRating` is a numeric code as seen in the above table. The coding is
+
+|  1 | 2 | 3 | 4 | 5 | 6 |  7 |
+|---:|--:|--:|--:|--:|--:|---:|
+| HR | E | D | C | B | A | AA |
+
+* 1 is the worst
+* 7 is the best rating
+
+`ProsperScore` is the internal calculated score of a loan. It ranges from 1 to
+11 whereby 11 is the best score.
+
+Before doing any examinations the original dataset was reduced to include only
+data after the relaunch due to the SEC registration. This was done to use only
+the loans having a ProsperRating. This rating is used as primary risk analyzis
+system after the SEC registration.
+
+In addition to this manipulation `ProsperRating (Alpha)` was reordered from 
+low to high risk (AA to HR or 7 to 1, respectively). This was done to display
+this order more naturally.
+
+For better displaying `LoanStatus` this was reorderd from *god* to *bad* status
+as well. That means from `Completed` to `Chargedoff`. 
+
+During the analyzis my observations were:
+
+* Most loans have a interest rate of **32%**.
+* About 58% of the loans of the top 5 highest interest rates do have the worst
+  rating of **HR** or *High Risk*.
+* The majority of loans do have a `ProsperScore` of **4**, **6** and **8**. 
+* The modal of `ProsperRating` is **4** - meaning that most loans do have a
+  **C** rating. This variable is the only one that is normal distributed.
+* Prosper does not allow members having a `CreditScore` below **600**. Most
+  members do have a score of **660-679**.
+* The average stated monthly income is **$5,932.96** but there are **21048**
+  listings having stated more than **$7,083.33**. As seen above there is one
+  loan having a stated income of **$1,750,002**. I don't think that someone
+  having that large income per month would borrow money at Prosper. So I
+  suspect that a outlier. But this can not be proven.
+* There are **682** listings having at least one public record within the last
+  12 months. This is prohibited by Prosper at the time joining the Marketplace.
+  If necessary for further analyzis it should be checked whether these loans
+  are older than 12 months. That would mean that the public records were filed
+  during the term of the loan.
+* **97%** of the loans did not have any inquiries within the last 6 months.
+* Most borrowers borrowed **$4,000**, **$10,000** or **$15,000**. Very few
+  listings exist having borrowed more than **$25,000**.
+* The average estimated loss is **8%**. 
+* Most loans do have an estimated loss below **20%**, the most of **6%**.
+* About **90%** of the loans are not delinquent. That means that **10%** are
+  delinquent. That is more than the **3.19%** average borrowers using
+  commercial banks.
+
+The main features in this dataset are `BorrowerRate` and `ProsperRating`. I 
+suspect a high correlation between them. 
+
+I suspect all other variables expect `PublicRecordsLast12Months` to be 
+helpful analyzing `BorrowerRate` and `ProsperRating`. I think that all of these
+contribute to them.
+
+```{r cleanup_part_1}
+rm(rate_order, top_5_worse_borrower_ratings)
+```
+
+***
+
+# Let's go swimming
+
+The second part of this report examines correlation between above variables to
+find patterns and perhaps get a glimpse of predicting risk factors.
+
+## Correlogram
+
+Let's start with a correlogram
+
+```{r correlogram}
+post_sec_relaunch %>%
+  select(BorrowerRate, ProsperScore, ProsperRating..numeric.,
+         CreditScoreRangeLower, StatedMonthlyIncome, PublicRecordsLast12Months,
+         InquiriesLast6Months, LoanOriginalAmount, LoanCurrentDaysDelinquent,
+         CurrentDelinquencies, EstimatedLoss) %>%
+  cor() %>%
+  ggcorrplot(., type = 'full', ggtheme = theme_pander(), hc.order = TRUE,
+             title = 'Correlogram of Loan Data', lab = TRUE, lab_size = 2.5,
+             colors = c("#e03c31", "white", "#a4c639"), tl.cex = 10, 
+             show.diag = TRUE)
+```
+
+Based on this correlogram the strongest relationships of `BorrowerRate` are
+
+* `ProsperRating`
+* `EstimatedLoss`
+
+`ProsperRating` has the strongest relationships with
+
+* `EstimatedLoss`
+* `BorrowerRate`
+* `ProsperScore`
+
+`ProsperScore` has relationships with
+
+* `EstimatedLoss`
+* `BorrowerRate`
+* `ProsperRating`
+
+Let's explore some of these relationships. As the primary variable of interest
+is `BorrowerRate` I start with it.
+
+## BorrowerRate and ProsperRating
+
+Based on the correlogram this is a strong relation in the examined variables.
+
+```{r borrower_rate_by_prosper_rating}
+ggplot(post_sec_relaunch, aes(ProsperRating..numeric., BorrowerRate)) +
+  geom_jitter(alpha = 0.25, size = 0.5) +
+  theme_pander() +
+  scale_y_continuous(label = percent) +
+  scale_x_continuous(breaks = seq(1, 7, 1))
+```
+
+As this plot already looks like a boxplot let's choose `ProsperRating (Alpha)`
+in a second plot. 
+
+```{r borrower_rate_by_prosper_rating_alpha}
+ggplot(post_sec_relaunch, aes(ProsperRating..Alpha., BorrowerRate)) +
+  geom_boxplot() +
+  theme_pander() +
+  scale_y_continuous(label = percent) +
+  # as ProsperRating (Alpha) was ordered from Low to High Risk it must be
+  # reversed here
+  scale_x_discrete(limits = rev(levels(post_sec_relaunch$ProsperRating..Alpha.)))
+```
+
+As expected the correlation can be seen here. The better `ProsperRating` the 
+smaller `BorrowerRate`. Except for **HR** all *IQR*s even don't overlap.
+
+Let's the what correlates to `ProsperRating`.
+
+## ProsperRating and EstimatedLoss
+
+`ProsperRating` has a strong relation to `EstimatedLoss`.
+
+```{r prosper_rating_by_estimated_loss}
+ggplot(post_sec_relaunch, aes(ProsperRating..Alpha., EstimatedLoss)) +
+  geom_tufteboxplot() +
+  scale_y_continuous(label = percent) +
+  theme_pander() +
+  scale_x_discrete(limits = rev(levels(post_sec_relaunch$ProsperRating..Alpha.)))
+```
+
+This can be seen by this plot. The better `ProsperRating` the lower
+`EstimatedLoss`.
+
+So what about the correlations of `EstimatedLoss`?
+
+## EstimatedLoss and ProsperScore
+
+According to [Prosper][GPS] `EstimatedLoss` was used to build their custom risk
+score.
+
+```{r estimated_loss_by_prosper_score}
+ggplot(post_sec_relaunch, aes(as.factor(ProsperScore), EstimatedLoss)) +
+  geom_tufteboxplot() +
+  scale_y_continuous(label = percent) +
+  theme_pander()
+```
+
+And yes: This is visible here. The higher `ProsperScore` the less is
+`EstimatedLoss`. 
+
+## EstimatedLoss and CreditScore
+
+One variable related to `EstimatedLoss` should be `CreditScoreRangeLower` and
+`CreditScoreRangeUpper` because that is a hint of creditworthiness.
+
+```{r estimated_loss_by_credit_score}
+ggplot(post_sec_relaunch, aes(CreditScoreRangeLower, EstimatedLoss)) +
+  geom_jitter(alpha = 0.25, size = 0.5) +
+  geom_smooth(color = 'red', size = 0.75, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  scale_y_continuous(label = percent) +
+  theme_pander()
+```
+
+That's the expected correlation. The higher the credit score the lower the 
+estimated loss. 
+
+In my opinion the correlations are: If `ProsperRating` is low the loan gets a 
+better `BorrowerRate`. `ProsperRating` is lower if `EstimatedLoss` is low. And
+`EstimatedLoss` is low if (a) the `CreditScore` is high and (b) the custom risk
+score `ProsperScore` is high (11 being the best).
+
+I suspect these variables to have a relationship to `ProsperScore`:
+
+* `InquiriesLast6Months` is stated by Prosper to be a prerequisite to join the
+  Marketplace at all.
+* `CurrentDelinquencies` because this might be a hint on the creditworthiness.
+* `AvailableBankcardCredit` and `BankcardUtilization` - not examined so far - 
+  might be a hint about the creditworthiness as well.
+* `TotalProsperLoans` because I suspect that Prosper takes it into account
+  whether it knows the member already.
+
+## ProsperScore and InquiriesLast6Months
+
+As written Prosper takes into account the number of inquiries on the credit 
+bureau. Because of that let's see the relationship between 
+`InquiriesLast6Months` and `ProsperScore`.
+
+```{r prosper_score_by_inquiries_last_6_months}
+ggplot(post_sec_relaunch, aes(as.factor(ProsperScore), InquiriesLast6Months)) +
+  geom_boxplot() +
+  theme_pander()
+```
+
+Again the plot is skewed to outliers or higher edge cases. 
+
+```{r prosper_score_by_inquiries_last_6_months_subset}
+# I choose a jitter plot here because boxes do not show the trend that much
+post_sec_relaunch %>%
+  filter(InquiriesLast6Months < 12) %>%
+  ggplot(., aes(as.factor(ProsperScore), InquiriesLast6Months)) +
+  geom_jitter(size = 0.5) +
+  scale_y_continuous(breaks = seq(0, 12, 1)) +
+  theme_pander()
+```
+
+Using a subset of data shows the trend more clear. The more inquiries exist the
+lower `ProsperScore`.
+
+## ProsperScore and CurrentDelinquencies
+
+As every Bank does pay attention to the number of delinquent accounts of its
+customers I suspect that Prosper is doing that as well. Next I plot
+`CurrentDelinquencies` and `ProsperScore`.
+
+```{r prosper_score_by_current_delinquencies}
+ggplot(post_sec_relaunch, aes(as.factor(ProsperScore), CurrentDelinquencies)) +
+  geom_boxplot() +
+  theme_pander()
+```
+
+This plot looks normal distributed. Let's remove the higher values.
+
+```{r prosper_score_by_current_delinquencies_subset}
+# again I choose a jitter plot because a boxplot or violin plot is not really 
+# helpfull in plotting a trend here. That' because most values are 0
+post_sec_relaunch %>%
+  filter(CurrentDelinquencies < 20 &
+         CurrentDelinquencies > 0) %>%
+  ggplot(., aes(as.factor(ProsperScore), CurrentDelinquencies)) +
+  geom_jitter(alpha = 0.25, size = 0.5) +
+  theme_pander()
+```
+
+Again this Plot looks normal distributed. So I suspect this variable is not
+that correlated to `ProsperScore`.
+
+## ProsperScore and AvailableBankcardCredit
+
+I suspect that correlates as well strong. Having a higher credit available is a
+hint of a better solvency.
+
+```{r prosper_score_by_available_card_credit}
+ggplot(post_sec_relaunch, aes(as.factor(ProsperScore), AvailableBankcardCredit)) +
+  geom_boxplot() +
+  scale_y_continuous(label = dollar) +
+  theme_pander()
+```
+
+As there are high values let's remove them.
+
+```{r prosper_score_by_available_card_credit_subset}
+post_sec_relaunch %>%
+  filter(AvailableBankcardCredit < 100000) %>%
+  ggplot(., aes(as.factor(ProsperScore), AvailableBankcardCredit)) +
+  geom_boxplot() +
+  scale_y_continuous(label = dollar) +
+  theme_pander()
+```
+
+Again the trend seems to confirm my assumption. The higher the available
+bankcard credit the higher the `ProsperScore`.
+
+## ProsperScore and BankcardUtilization
+
+I suspect a better solvency if one did not use his bankcard that often.
+
+```{r prosper_score_by_bankcard_utilization}
+ggplot(post_sec_relaunch, aes(as.factor(ProsperScore), BankcardUtilization)) +
+  geom_boxplot() +
+  theme_pander()
+```
+
+I don't think there are much outliers. But I'll filter the data nevertheless.
+
+```{r prosper_score_by_bankcard_utilization_subset}
+post_sec_relaunch %>%
+  filter(BankcardUtilization < 1.25) %>%
+  ggplot(., aes(as.factor(ProsperScore), BankcardUtilization)) +
+  geom_boxplot() +
+  theme_pander()
+```
+
+A trend can be seen that a smaller `BankcardUtilization` leads to a higher
+and hence better `ProspeScore`.
+
+## ProsperScore and TotalProsperLoans
+
+Let's see the correlation of these two variables. I think that Prosper 
+calculates `ProsperScore` different if a loan listing is files by an existing
+member.
+
+```{r prosper_score_by_total_prosper_loans}
+ggplot(post_sec_relaunch, aes(as.factor(ProsperScore), TotalProsperLoans)) +
+  geom_violin(na.rm = TRUE, trim = FALSE, scale = 'count') +
+  theme_pander()
+```
+
+Again I don't see correlation here. I assume that this follows a normal
+distribution.
+
+## Relations of ListingCreationDate
+
+Just of interest the last analyzis in part two is about the trend of 
+`BorrowerRate`, `ProsperRating` and `LoanCurrentDaysDelinquent` over
+time.
+
+### BorrowerRate
+
+```{r borrower_rate_by_day}
+post_sec_relaunch %>%
+  group_by(ListingCreationDate) %>%
+  summarise(avgBorrowerRate = mean(BorrowerRate)) %>%
+  select(ListingCreationDate, avgBorrowerRate) %>%
+  ggplot(., aes(ListingCreationDate, avgBorrowerRate)) +
+  geom_line() +
+  geom_smooth(color = 'red', size = 0.5, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  scale_y_continuous(label = percent) +
+  theme_pander()
+```
+
+Before 2011 there was a little noise in the mean borrower rate. In 2011 and 2012
+the plot looks a little seasonal. But after the first half of 2011 the trend is
+downward. Can that be related by the `ProsperRating`?
+
+### ProsperRating
+
+Let's plot the same with `ProsperRating`.
+
+```{r prosper_rating_by_day}
+post_sec_relaunch %>%
+  group_by(ListingCreationDate) %>%
+  summarise(avgProsperRating = mean(ProsperRating..numeric.)) %>%
+  select(ListingCreationDate, avgProsperRating) %>%
+  ggplot(., aes(ListingCreationDate, avgProsperRating)) +
+  geom_line() +
+  geom_smooth(color = 'red', size = 0.5, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  theme_pander()
+```
+
+My assumption seems to be confirmed by this plot: Starting in 2011 the trend of
+the average ProsperRating is upwards.
+
+### LoanCurrentDaysDelinquent
+
+The next plot in this section is about the trend in delinquent loans:
+
+```{r delinquent_loans_by_day}
+post_sec_relaunch %>%
+  mutate(BadLoan = 
+           if_else(.$LoanStatus %in% c('Completed', 'FinalPaymentInProgress', 
+                                       'Current'), FALSE, TRUE, TRUE)) %>%
+  group_by(ListingCreationDate) %>%
+  summarise(avgBadLoans = mean(BadLoan)) %>%
+  select(ListingCreationDate, avgBadLoans) %>%
+  ggplot(., aes(ListingCreationDate, avgBadLoans)) +
+  geom_line() +
+  geom_smooth(color = 'red', size = 0.5, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  scale_y_continuous(label = percent) +
+  theme_pander()
+```
+
+This trend is obvious: Since the second half of 2011 the average number of
+delinquent loans per day is downwards. 
+
+It seems that the risk evaluating system of Prosper is doing well.
+
+## Summary
+
+In the second part I first draw a correlogram of all variables choosen in the
+first part of the document. For my luck these were only numeric variables
+containing no *NA* values. 
+
+The primary variable examined was `BorrowerRate`. The first correlation
+examinded was with `ProsperRating` because this is the strongest having a 
+correlation coefficient of **-0.95**. This negative correlation was seen in the
+plot. 
+
+The question I wanted to answer is: What contributes to a low `BorrowerRate`.
+Hence I followed the track to plot the highest correlation of `ProsperRating`.
+This is `EstimatedLoss`. This plot shows that a better `ProsperRating` 
+correlates with a lower `EstimatedLoss`. 
+
+Again I took the strongest correlation of `EstimatedLoss`. This is 
+`ProsperScore`. This plot shows that a higher `ProsperScore` contributes 
+to a lesser `EstimatedLoss`.
+
+According to Prosper the second variable that contributes to a lesser 
+`EstimatedLoss` is the `CreditScore`. Hence I plottet this relationship. I found
+the expected correlation: The higher the credit score the lower the estimated 
+loss.
+
+The next stept was to identify variables having a relationship to 
+`ProsperScore` because this the most important variable to set `EstimatedLoss`
+and hence `ProsperRating`. I examined `InquiriesLast6Months`, 
+`CurrentDelinquencies`, `AvailableBankcardCredit`, `BankcardUtilization` and
+`TotalProsperLoans`.
+
+The obvservations made are:
+
+* The higher `InquiriesLast6Months` the lower is `ProsperScore` and hence I
+  assume the loan is rated worst.
+* There is no significant correlation with `CurrentDelinquencies`.
+* The higher the `AvailableBankcardCredit` the higher the `ProsperScore`.
+* A smaller `BankcardUtilization` leads to a higher and hence better 
+  `ProspeScore`.
+* I don't see a significant correlation with `TotalProsperLoans`. 
+
+In my opinion a lower `BorrowerRate` is offered to borrowers that
+
+* have no or only a few inquiries within the last 6 month, 
+* have available a high bankcard credit,
+* have a low bankcard utilization,
+* have a high credit score.
+
+In addition three plots were created to show the trend of `BorrowerRate`,
+`ProsperRating` and `LoanCurrentDaysDelinquent`.
+
+* The average `BorrowerRate` dropped from the second half of 2011.
+* Starting in 2011 the trend of the average ProsperRating is upwards.
+* Since the second half of 2011 the average number of delinquent loans per day 
+  is downwards.
+
+# Scuba Diving
+
+In this part of the document I'll try to prove the findings of the sections
+above. As it turned out that the primary variables are `BorrowerRate` and 
+`EstimatedLoss`. I'm going to examine these further.
+
+## EstimatedLoss, ProsperScore and CreditScore
+
+`EstimatedLoss` is based on `ProsperScore` and `CreditScore`. So let's first
+plot these.
+
+```{r estimated_loss_by_credit_score_and_prosper_score}
+ggplot(post_sec_relaunch, aes(EstimatedLoss, CreditScoreRangeLower,
+                              colour = as.factor(ProsperScore))) +
+  geom_jitter(alpha = 0.25, size = 0.5) +
+  geom_smooth(color = 'red', size = 0.75, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  scale_x_continuous(label = percent) +
+  scale_colour_brewer(type = 'div') +
+  theme_pander()
+```
+
+This relationship can be seen in this plot. The lower the credit score the
+higher `EstimatedLoss`. In addition it can be seen that the higher prosper
+scores are plotted at the top left edge with the lower estimated loss.
+
+## EstimatedLoss, InquiriesLast6Months and AvailableBankcardCredit
+
+As `EstimatedLoss` is based on `ProsperScore` as well as `CreditScore` and 
+`ProsperScore` in turn correlates to `InquiriesLast6Months`, 
+`AvailableBankcardCredit` and `BankcardUtilization` this should be visible as
+well without using `ProsperScore`.
+
+```{r estimated_loss_and_il6m_and_abc}
+ggplot(post_sec_relaunch, aes(EstimatedLoss, InquiriesLast6Months,
+                              colour = AvailableBankcardCredit)) +
+  geom_point(size = 0.5) +
+  geom_encircle(data = subset(post_sec_relaunch, InquiriesLast6Months > 15),
+                color = '#0070ff', expand = 0.05) +
+  # choose the same subset as above: $150,000
+  geom_encircle(data = subset(post_sec_relaunch, 
+                              AvailableBankcardCredit > 150000),
+                color = '#4b5320', expand = 0.05) +
+  scale_x_continuous(label = percent) +
+  scale_y_continuous(breaks = seq(0, 35, 5)) +
+  scale_color_gradient(low = '#f5f5dc', high = '#c32148') +
+  theme_pander()
+```
+
+In this plot all listings having more than **15** inquiries are encircled in
+blue. All listings having more than **$150,000** available bankcard credit are
+encircled green and all listings having a high amount of available bankcard
+credit are filled red. These are visible in the lower left of the plot - but as
+there are listings with a very high amount of credit only a few points are
+filled dark red.
+
+As visible the correlation between these three variables exist the same way as
+between `ProsperScore`, `InquiriesLast6Months` and `AvailableBankcardCredit`.
+
+## BorrowerRate, EstimatedLoss and InquiriesLast6Months
+
+As seen the correlation is even visible by excluding `ProsperScore`. I assume
+that this is also visible by using `BorrowerRate` directly. 
+
+To recap first: 
+
+* `BorrowerRate` correlates with `ProsperRating`. 
+* `ProsperRating` correlates with `EstimatedLoss`.
+* `EstimatedLoss` correlates with `ProsperScore`. 
+* `ProsperScore` correlates among others with `InquiriesLast6Months`.
+
+A correlation should be visible between `BorrowerRate`, `EstimatedLoss` and
+`InquiriesLast6Months`.
+
+To reduce overplotting I exclude all loans having less than 6 inquiries in the
+last 6 months.
+
+```{r borrower_rate_plus_estimated_loss_plus_inquiries_last_6_months_subset}
+post_sec_relaunch %>%
+  filter(InquiriesLast6Months > 5) %>%
+  ggplot(., aes(BorrowerRate, EstimatedLoss, color = InquiriesLast6Months)) +
+  geom_point(aes(size = InquiriesLast6Months)) +
+  geom_smooth(color = 'red', size = 0.75, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  scale_y_continuous(label = percent) +
+  scale_x_continuous(label = percent) +
+  theme_pander() +
+  scale_color_gradient(low = '#f5f5dc', high = '#c32148')
+```
+
+It is visible that the higher the borrower rate and the higher the estimated
+loss the bigger the points. Hence the more inquiries were done. 
+
+My assumptions seem to be correct.
+
+## BorrowerRate, EstimatedLoss and ProsperRating
+
+As last plot let's include `ProsperRating` instead of `InquiriesLast6Months`.
+Doing that shows the two strongest correlations.
+
+```{r borrower_rate_plus_estimated_loss_plus_prosper_rating}
+ggplot(post_sec_relaunch, aes(BorrowerRate, EstimatedLoss)) +
+  geom_density2d(aes(colour = ProsperRating..Alpha.)) +
+  scale_x_continuous(label = percent) +
+  scale_y_continuous(label = percent) +
+  theme_pander() +
+  scale_colour_brewer(type = 'qual', palette = 2)
+```
+
+This plot shows very clear that listings having a low `EstimatedLoss` and
+a high `ProsperRating` do have a low `BorrowerRate`.
+
+## Summary
+
+In this third part of the document I verified the correlations found in the
+second part. 
+
+First I checked correlation between `EstimatedLoss`, `ProsperScore` and 
+`CreditScore` because the former variable is calculated by the other two. This
+can be seen in the plot. The higher `CreditScore` and the higher `ProsperScore`
+the lower `EstimatedLoss`. 
+
+After that I checked whether the correlations of `ProsperScore` with
+`InquiriesLast6Months` and `AvailableBankcardCredit` can be seen as well for
+`EstimatedLoss`. I expected that due to the correlations mentioned above. This
+was confirmed by the corresponding plot.
+
+The third correlation checked was between `BorrowerRate`, `EstimatedLoss` and 
+`InquiriesLast6Months` because `BorrowerRate` highly correlates with 
+`EstimatedLoss` and `EstimatedLoss` highly correlates with 
+`InquiriesLast6Months`. These correlations were again confirmed. 
+
+The last plot related `BorrowerRate`, `EstimatedLoss` and `ProsperRating` to
+validate whether these correlations are strong.
+
+I confirmed that `BorrowerRate` depends on `InquiriesLast6Months`,
+`AvailableBankcardCredit` and `BankcardUtilization`.
+
+These are for sure not the only variables used to calculate `BorrowerRate` but
+they do have a strong relationship.
+
+***
+
+# Final Plots and Summary
+
+## Average Number of Loans delayed per Day
+
+```{r final_delinquent_loans_by_day}
+post_sec_relaunch %>%
+  mutate(BadLoan = 
+           if_else(.$LoanStatus %in% c('Completed', 'FinalPaymentInProgress', 
+                                       'Current'), FALSE, TRUE, TRUE)) %>%
+  group_by(ListingCreationDate) %>%
+  summarise(avgBadLoans = mean(BadLoan)) %>%
+  select(ListingCreationDate, avgBadLoans) %>%
+  ggplot(., aes(ListingCreationDate, avgBadLoans)) +
+  geom_line(color = '#120a8f') +
+  geom_smooth(color = '#f3e5ab', size = 0.75, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  scale_y_continuous(label = percent) +
+  labs(x = 'Listing Date', y = 'Average Number of Loans delayed', 
+       title = 'Average Number of Loans delayed per Day',
+       subtitle = 'Listings from 2009-07-29 to 2014-03-10') +
+  theme_pander()
+```
+
+## Description
+
+This plot shows the average number of Loans per Day that are delayed. That means
+Loans that are past due, defaulted or chargedoff.
+
+One can see here that Prosper implemented a risk estimation system
+that started to work better and better starting from half of 2011. Prosper used
+the data of their population from April, 2008 through April, 2011 to build this
+system and enhanced it over time.
+
+## Estimated loss by Credit Score and Prosper Score
+
+```{r final_estimated_loss_by_credit_score_and_prosper_score}
+ggplot(post_sec_relaunch, aes( EstimatedLoss, CreditScoreRangeLower,
+                              colour = as.factor(ProsperScore))) +
+  geom_jitter(alpha = 0.25, size = 0.5) +
+  geom_smooth(color = 'red', size = 0.75, method = 'gam',
+              formula = y ~ s(x, bs = 'cs')) +
+  scale_x_continuous(label = percent) +
+  labs(title = 'Estimated loss by Credit Score and Prosper Score', 
+       x = 'Estimated Loss', y = 'Credit Score', 
+       colour = 'Prosper Score\nBest = 11') +
+  scale_colour_brewer(type = 'div') +
+  theme_pander()
+```
+
+## Description
+
+The risk estimation system of Prosper is based on the calculation of the
+variable `EstimatedLoss`. These is in turn based on the two variables
+`ProsperScore` and `CreditScore`.
+
+This can be seen in this plot. The lower the credit score and Prosper Score the
+higher `EstimatedLoss`. And the higher `EstimatedLoss` the higher 
+`ProsperRating` and hence `BorrowerRate`. This can be seen in the next plot.
+
+## Borrower Rate by Estimated Loss and Prosper Rating
+
+```{r final_borrower_rate_plus_estimated_loss_plus_prosper_rating}
+ggplot(post_sec_relaunch, aes(BorrowerRate, EstimatedLoss)) +
+  geom_density2d(aes(colour = ProsperRating..Alpha.)) +
+  scale_x_continuous(label = percent) +
+  scale_y_continuous(label = percent) +
+  labs(title = 'Borrower Rate by Estimated Loss and Prosper Rating', 
+       x = 'Borrower Rate (interest rate)', y = 'Estimated Loss', 
+       colour = 'Prosper Rating') +
+  theme_pander() +
+  scale_colour_brewer(type = 'qual', palette = 2)
+```
+
+## Description
+
+As described above the interest rate that Prosper offers its members is based
+on the calculation of the loss if a loan is chargedoff. This loss is condensed
+in a rating from **AA** (lowest risk) to **HR** (highest risk). And based on
+this rating the borrower rate is set.
+
+This plot shows this relationship. One can see that the lower borrower rates are
+set on `ProsperRating` **AA** which has the lowest `EstimatedLoss`.
+
+***
+
+# Reflection
+
+Analyzing this dataset was a big challenge. Not due to the size of data. These
+large number of observations can be handled with the computing power at hand.
+Even the number of variables was not a problem concerning computations. 
+
+The biggest issue was the missing domain knowlegde. I did not know Prosper and
+don't know that much about finance. And this was a problem having 81
+variables available. In addition I'm not a native speaker of English. So I
+did not know what 'interest rate' is or the meaning of 
+'Total principal borrowed on Prosper loans'.
+
+During the project I've thrown away three different versions of the report just
+because I learned more and more about the structure and the relevance of the
+variables. And because I saw the mistakes I made due to incorrect presumptions
+and translations.
+
+Another struggle was the syntax and funtionality of R. Subsetting and plotting
+data is easier in Python in my opinion. At the beginning of the project a lot
+of time was spent to forget what I've learned in Term 1 about Python and
+learn how I can achieve the same with R. 
+
+Finally I think I was able to gain a little insight into the business of
+P2P lending and how Prosper used existing data to predict the loan outcome of
+its members.
+
+In the future I'd try to find more variables contributing to `EstimatedLoss` and
+fit a model with a larger dataset. In addition I'm left wondering what the 
+perfect portfolio of Prosper loans look like to maximize the lenders yield.
+
+***
+
+# References
+
+* [Investopia](https://www.investopedia.com)
+* [Prosper Marketplace at WikiPedia](https://en.wikipedia.org/wiki/Prosper_Marketplace)
+* [Harvard Business Law Review](http://www.hblr.org/2016/08/it-aint-broke-the-case-for-continued-sec-regulation-of-p2p-lending/)
+* [Prosper Minimum Borrowing Criteria](https://prosper.zendesk.com/hc/en-us/articles/210013963-What-are-the-minimum-criteria-to-borrow-on-Prosper-)
+* [dplyr Reference](https://dplyr.tidyverse.org/reference/index.html)
+* [ggplot2 Referece](https://ggplot2.tidyverse.org/reference/index.html)
+* [Prosper Score](https://www.prosper.com/plp/general-prosper_score/)
+* [Estimated Loss Rates](https://www.prosper.com/plp/general-estimated_loss_rates/)
+* [Prosper Ratings](https://www.prosper.com/plp/invest/prosper-ratings/)
+
+[WikiPedia]: https://en.wikipedia.org/wiki/Prosper_Marketplace
+[HBLR]: http://www.hblr.org/2016/08/it-aint-broke-the-case-for-continued-sec-regulation-of-p2p-lending/
+[MinimumCriteria]: https://prosper.zendesk.com/hc/en-us/articles/210013963-What-are-the-minimum-criteria-to-borrow-on-Prosper-
+[DRCLACBS]: https://fred.stlouisfed.org/series/DRCLACBS
+[TERMCBCCALLNS]: https://fred.stlouisfed.org/series/TERMCBCCALLNS
+[GPS]: https://www.prosper.com/plp/general-prosper_score/
