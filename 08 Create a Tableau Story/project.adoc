@@ -1,0 +1,14 @@
+= Udacity Data Analyst Nanodegree Project: Create a Tableau Story
+Jörg Horchler <joerg@horchler.xyz>
+v1.1, November 04, 2018: Added feedback
+:toc:
+:toclevels: 3
+:sectnums:
+
+include::summary.adoc[]
+
+include::design.adoc[]
+
+include::feedback.adoc[]
+
+include::resources.adoc[]

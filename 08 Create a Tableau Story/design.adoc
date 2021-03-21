@@ -1,0 +1,45 @@
+== Design
+
+=== Initial Design
+
+As PISA contains data of a lot of countries around the world I first thought about creating maps.
+But as I want to show a relationship between Countries and ICT availability, usage and scores I switched to bar charts and scatterplots.
+
+For readability I choosed to use the color palette for color blinded and decided to use grey colors for the first bar charts.
+In addition I choosed to stay with the default fonts provided by Tableau.
+The trend lines were colored orange for contrast.
+The third bar chart does include more categories for the usage of ICT at school so I included more colors of the color blinded palette.
+As the scatter plots contain all countries there were not enough colors in the palette for this categories.
+Hence I used an automatic palette.
+Overall I like to use light colors and white.
+Hence I used that.
+
+As the countries include OECD and Non-OECD countries I added a filter and a highlighter for these two groups.
+In addition on the third chart I included a filter for the time categories ICT is used at school.
+
+On all plots I included the averages to better see the message I want to transport.
+
+This first version is available as https://public.tableau.com/profile/jhorcl#!/vizhome/UdacityTableauStory_V1_0/InformationCommunicationTechnologySchool[Udacity Tableau Story V1.0].
+
+=== Changes from Feedback of 3rd of November
+
+* I decided to rotate the bar charts to get horizontal bars so that the country names are better readable.
+* In addition I remove the dual axis to split the plot in two different bar charts.
+  This is to be able to compare the countries even better.
+
+=== Changes after initial version by me
+
+* I decided to remove the filter about OECD and Non-OECD Countries because this information is not needed for the message I'd like to transport.
+* I removed the tick marks on the bar charts because the values of the bars were shown already.
+  Hence I think that this is redundant information.
+* I removed the story title from the header to get a higher data ink ratio.
+* I changed the size of the Story to `Generic Desktop` to remove the borders around the slide.
+
+The second version is available as https://public.tableau.com/profile/jhorcl#!/vizhome/UdacityTableauStory_V1_1/InformationCommunicationTechnologySchool[Udacity Tableau Story V1.1]
+
+=== Changes from Feedback of 4th of November
+
+* Added the datasource link and a short sentence about it on the first slide.
+* Removed colours of data points in the scatter plots as the points do have a label.
+
+The final version is available as https://public.tableau.com/profile/jhorcl#!/vizhome/UdacityTableauStory_V1_2/InformationCommunicationTechnologySchool[Udacity Tableau Story V1.2]
