@@ -1,2 +1,3 @@
-# udacity-data-analyst
-My submissions to the Data Analyst Nanodegree at Udacity
+# Submissions to the Udacity Data Analyst Nanodegree
+
+These are my submissions to the Udacity Data Analyst Nanodegree I completed in November 2018.
