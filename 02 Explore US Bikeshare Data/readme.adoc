@@ -1,0 +1,318 @@
+= T1P2 Exploring US Bikeshare Data
+Jörg Horchler <joerg@horchler.xyz>
+:toc:
+:source-highlighter: rouge
+:pdf-page-size: Letter
+
+== Project Overview
+
+In this project, you will make use of Python to explore data related to bike
+share systems for three major cities in the United States—Chicago, New York
+City, and Washington. You will write code to import the data and answer
+interesting questions about it by computing descriptive statistics. You will
+also write a script that takes in raw input to create an interactive experience
+in the terminal to present these statistics.
+
+=== What Software Do I Need?
+
+To complete this project, the following software requirements apply:
+
+- You should have Python 3, NumPy, and pandas installed using Anaconda
+- A text editor, like Sublime or Atom.
+- A terminal application (Terminal on Mac and Linux or Cygwin on Windows).
+
+== Project Details
+
+=== Bike Share Data
+
+Over the past decade, bicycle-sharing systems have been growing in number and
+popularity in cities across the world. Bicycle-sharing systems allow users to
+rent bicycles on a very short-term basis for a price. This allows people to
+borrow a bike from point A and return it at point B, though they can also
+return it to the same location if they'd like to just go for a ride.
+Regardless, each bike can serve several users per day.
+
+Thanks to the rise in information technologies, it is easy for a user of the
+system to access a dock within the system to unlock or return bicycles. These
+technologies also provide a wealth of data that can be used to explore how
+these bike-sharing systems are used.
+
+In this project, you will use data provided by
+https://www.motivateco.com/[Motivate], a bike share system
+provider for many major cities in the United States, to uncover bike share
+usage patterns. You will compare the system usage between three large cities:
+Chicago, New York City, and Washington, DC.
+
+=== The Datasets
+
+Randomly selected data for the first six months of 2017 are provided for all
+three cities. All three of the data files contain the same core six (6)
+columns:
+
+- Start Time (e.g., 2017-01-01 00:07:57)
+- End Time (e.g., 2017-01-01 00:20:53)
+- Trip Duration (in seconds - e.g., 776)
+- Start Station (e.g., Broadway & Barry Ave)
+- End Station (e.g., Sedgwick St & North Ave)
+- User Type (Subscriber or Customer)
+
+The Chicago and New York City files also have the following two columns:
+
+- Gender
+- Birth Year
+
+image::bikeshare-header.png[Data for the first 10 rides in new_york_city.csv file]
+
+The original files are much larger and messier, and you don't need to download
+them, but they can be accessed here if you'd like to see them
+(https://www.divvybikes.com/system-data[Chicago],
+https://www.citibikenyc.com/system-data[New York City],
+https://www.capitalbikeshare.com/system-data[Washington]).
+These files had more columns and they differed in format in many cases. Some
+data wrangling has been performed to condense these files to the above core six
+columns to make your analysis and the evaluation of your Python skills more
+straightforward. In the Data Wrangling course that comes later in the Data
+Analyst Nanodegree program, students learn how to wrangle the dirtiest,
+messiest datasets, so don't worry, you won't miss out on learning this
+important skill!
+
+=== Statistics Computed
+
+You will learn about bike share use in Chicago, New York City, and Washington
+by computing a variety of descriptive statistics. In this project, you'll write
+code to provide the following information:
+
+*1 Popular times of travel (i.e., occurs most often in the start time)*
+
+- most common month
+- most common day of week
+- most common hour of day
+
+*2 Popular stations and trip*
+
+- most common start station
+- most common end station
+- most common trip from start to end (i.e., most frequent combination of start station and end station)
+
+*3 Trip duration*
+
+- total travel time
+- average travel time
+
+*4 User info*
+
+- counts of each user type
+- counts of each gender (only available for NYC and Chicago)
+- earliest, most recent, most common year of birth (only available for NYC and Chicago)
+
+=== The Files
+
+To answer these questions using Python, you will need to write a Python script.
+To help guide your work in this project, a template with helper code and
+comments is provided in a bikeshare.py file, and you will do your scripting in
+there also. You will need the three city dataset files too:
+
+- chicago.csv
+- new_york_city.csv
+- washington.csv
+
+All four of these files are zipped up in the Bikeshare file in the resource
+tab in the sidebar on the left side of this page. You may download and open
+up that zip file to do your project work on your local machine.
+
+Some versions of this project also include a Project Workspace page in the
+classroom where the bikeshare.py file and the city dataset files are all
+included, and you can do all your work with them there.
+
+=== An Interactive Experience
+
+The bikeshare.py file is set up as a script that takes in raw input to create
+an interactive experience in the terminal that answers questions about the
+dataset. The experience is interactive because depending on a user's input,
+the answers to the questions on the previous page will change! There are four
+questions that will change the answers:
+
+- Would you like to see data for Chicago, New York, or Washington?
+- Would you like to filter the data by month, day, or not at all?
+- (If they chose month) Which month - January, February, March, April, May, or June?
+- (If they chose day) Which day - Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, or Sunday?
+
+The answers to the questions above will determine the city and timeframe on
+which you'll do data analysis. After filtering the dataset, users will see the
+statistical result of the data, and choose to start again or exit.
+
+Remember that any time you ask users for input, there is a chance they may not
+enter what you expect, so your code should handle unexpected input well without
+failing. You need to anticipate raw input errors like typos, or users
+misunderstanding what you are expecting. Use the tips provided in the sections
+of the Scripting lesson in this course to make sure your code does not fail
+with an execution error due to unexpected raw input.
+
+*Note that this bikeshare.py file is simply a template you can use, but you are
+not required to use it.* You can change the functions however you like as long
+as you have an ending product that meets the project requirements. Changes to
+the structure of bikeshare.py (e.g., adding and/or deleting helper functions)
+that you think make the code more efficient or have a better style are
+encouraged!
+
+==  Practice Problem 1
+
+Use pandas to load chicago.csv into a dataframe, and find the most frequent hour
+when people start traveling. There isn't an hour column in this dataset, but
+you can create one by extracting the hour from the "Start Time" column. To do
+this, you can convert "Start Time" to the datetime datatype using the pandas
+https://pandas.pydata.org/pandas-docs/stable/generated/pandas.to_datetime.html[to_datetime()]
+method and extracting properties such as the hour with these
+https://pandas.pydata.org/pandas-docs/stable/api.html#datetimelike-properties[properties].
+
+_Hint: Another way to describe the most common value in a column is the mode._
+
+[source, python]
+----
+import pandas as pd
+
+filename = 'chicago.csv'
+
+# load data file into a dataframe
+df = pd.read_csv(filename)
+
+# convert the Start Time column to datetime
+df['Start Time'] = pd.to_datetime(df['Start Time'])
+
+# extract hour from the Start Time column to create an hour column
+df['hour'] = df['Start Time'].dt.hour
+
+# find the most popular hour
+popular_hour = df['hour'].mode()[0]
+
+print('Most Popular Start Hour:', popular_hour)
+----
+
+== Practice Problem 2
+
+There are different types of users specified in the "User Type" column. Find
+how many there are of each type and store the counts in a pandas Series in
+the user_types variable.
+
+_Hint: What pandas function returns a Series with the counts of each unique
+value in a column?_
+
+[source, python]
+----
+import pandas as pd
+
+filename = 'chicago.csv'
+
+# load data file into a dataframe
+df = pd.read_csv(filename)
+
+# print value counts for each user type
+user_types = df['User Type'].value_counts()
+
+print(user_types)
+----
+
+== Practice Problem 3
+
+This is a bit of a bigger task, which involves choosing a dataset to load and
+filtering it based on a specified month and day. In the quiz below, you'll
+implement the load_data() function, which you can use directly in your project.
+There are four steps:
+
+1. *Load the dataset for the specified city.* Index the global *_CITY_DATA_*
+dictionary object to get the corresponding filename for the given city name.
+2. *Create _month_ and _day_of_week_ columns.* Convert the "Start Time" column
+to datetime and extract the month number and weekday name into separate columns
+using the datetime module.
+3. *Filter by month.* Since the *_month_* parameter is given as the name of
+the month, you'll need to first convert this to the corresponding month number.
+Then, select rows of the dataframe that have the specified month and reassign
+this as the new dataframe.
+4. *Filter by day of week.* Select rows of the dataframe that have the specified
+day of week and reassign this as the new dataframe. (Note: Capitalize the day
+parameter with the title() method to match the title case used in the
+day_of_week column!)
+
+[source, python]
+----
+import pandas as pd
+
+CITY_DATA = { 'chicago': 'chicago.csv',
+              'new york city': 'new_york_city.csv',
+              'washington': 'washington.csv' }
+
+def load_data(city, month, day):
+    """
+    Loads data for the specified city and filters by month and day if applicable.
+
+    Args:
+        (str) city - name of the city to analyze
+        (str) month - name of the month to filter by, or "all" to apply no month filter
+        (str) day - name of the day of week to filter by, or "all" to apply no day filter
+    Returns:
+        df - Pandas DataFrame containing city data filtered by month and day
+    """
+
+    # load data file into a dataframe
+    df = pd.read_csv(CITY_DATA[city])
+
+    # convert the Start Time column to datetime
+    df['Start Time'] = pd.to_datetime(df['Start Time'])
+
+    # extract month and day of week from Start Time to create new columns
+    df['month'] = df['Start Time'].dt.month
+    df['day_of_week'] = df['Start Time'].dt.weekday_name
+
+    # filter by month if applicable
+    if month != 'all':
+        # use the index of the months list to get the corresponding int
+        months = ['january', 'february', 'march', 'april', 'may', 'june']
+        month = months.index(month) + 1
+
+        # filter by month to create the new dataframe
+        df = df[df['month'] == month]
+
+    # filter by day of week if applicable
+    if day != 'all':
+        # filter by day of week to create the new dataframe
+        df = df[df['day_of_week'] == day.title()]
+
+    return df
+----
+
+== Comments
+
+I did the following to write my solution:
+
+I decided not to use the provided template because I wanted to stay open
+minded about how I want to present the interactive part of my solution. First
+I wrote the complete interactive part without analyzing any data. My idea was
+to present option lists to the user which only contain numbers. This is to
+avoid checking type errors. (My career started on the Mainframe ...)
+
+As I wrote a lot of scripts in Perl in the past I favor having all mutatable
+variables in a hash - what is a Dictionary in Python. So I implemented the
+primary data structures as a tuple of dictionaries (the city_data) and the
+options the user has (options dictionary).
+
+In addition I like functional programming.
+So I implemented the interactive part by
+returning a function from the menu functions. The functions to get user
+input are implemented as nested functions of the main menu function. In
+addition the time a calculation took is calculated by passing functions to
+a function that executes the calculations and measures the time difference.
+
+After finishing the menu "mockup" I implemented all functions to calculate
+the statistics requested. In addition I added some more statistics - for
+example using the gender data.
+
+Last but not least I implemented a non-interactive part to automatically test
+all variations and to let the user analyze data from the command line. This is
+done using argparse and a test function.
+
+Websites used:
+To learn about what I needed to implement this I mostly used the Python and
+Pandas documention on the internet. In addition I only used Stack Overflow.
+
+Books used:
+I began reading 'Think Stats' by 'Allen B. Downey'.
